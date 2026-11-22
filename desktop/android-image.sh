@@ -52,7 +52,13 @@ if [ -z "${SSID:-}" ]; then
     [ "${#WIFI_KEY}" -ge 8 ] || SSID=
 fi
 if [ -n "${SSID:-}" ]; then
-    printf 'SSID=%s\nPSK=%s\nBAND=5\nCHANNEL=auto\nCOUNTRY=TR\n' "$SSID" "$WIFI_KEY" > "$R/etc/mu300/hotspot.conf"
+    # Pro models keep their image's channel 36 and use the phone's own country, not TR.
+    CH=auto; CC=TR
+    if [ "$(cat "$R/etc/mu300/platform" 2>/dev/null)" = u30pro ]; then
+        CH=36; CC=$(getprop ro.boot.wificountrycode 2>/dev/null || true)
+        case $CC in [A-Z][A-Z]) ;; *) CC=CN ;; esac
+    fi
+    printf 'SSID=%s\nPSK=%s\nBAND=5\nCHANNEL=%s\nCOUNTRY=%s\n' "$SSID" "$WIFI_KEY" "$CH" "$CC" > "$R/etc/mu300/hotspot.conf"
     chmod 600 "$R/etc/mu300/hotspot.conf"
 fi
 if [ -n "${APN:-}" ]; then

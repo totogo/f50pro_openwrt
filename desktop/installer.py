@@ -223,10 +223,16 @@ class Android:
                         entries.append({'serial':self.serial,'wireless':':' in self.serial,
                                         'label':next((v[6:] for v in values[2:] if v.startswith('model:')),'')})
                 module.prepare_devices(entries)
-        if self.shell('id -u',root=False).strip()=='0': self.su=False
+        if self.shell('id -u',root=False).strip()=='0': self.su=''
         else:
-            self.su=True
-            if self.shell('id -u').strip()!='0': raise ValueError('Grant the Android su permission and retry')
+            # Magisk does not put su on adb's PATH on every build. Probe the same
+            # places as the GUI backend, which shrinks userdata before this runs.
+            for name in ('su','/debug_ramdisk/su','/sbin/su'):
+                self.su=name
+                try:
+                    if self.shell('id -u').strip()=='0': break
+                except RuntimeError: pass
+            else: raise ValueError('Grant the Android su permission and retry')
         model=self.shell('getprop ro.product.model; getprop ro.product.device')
         self.profile=android_profile(model,self.shell('getprop ro.board.platform').strip())
         self.model=model.strip();self.slot=self.shell('getprop ro.boot.slot_suffix').strip().removeprefix('_')
@@ -267,7 +273,7 @@ class Android:
     def shell(self,script,root=True,timeout=1800):
         # adb shell has an additional remote shell layer; quote its entire
         # command. No host shell is used and user input never becomes code.
-        cmd='su -c '+shlex.quote(script) if root and self.su else 'sh -c '+shlex.quote(script)
+        cmd=self.su+' -c '+shlex.quote(script) if root and self.su else 'sh -c '+shlex.quote(script)
         text=self.call('shell',cmd,timeout=timeout).decode('utf-8',errors='replace').replace('\r','')
         return text
 

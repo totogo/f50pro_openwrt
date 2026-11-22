@@ -27,6 +27,15 @@ restore_android() {
     dd if="$misc" bs=1 skip=2048 count=32 2>/dev/null > /run/misc-check
     cmp -s "$source" /run/misc-check
 }
+# desktop/boot/part-prepare.sh and install-part.sh are shared with boot/init and
+# call two of its helpers. This init keeps no boot-partition log to persist.
+persist() { :; }
+write_misc_bc() {  # write_misc_bc FILE STAGE
+    [ -n "$misc" ] || return 1
+    dd if="$1" of="$misc" bs=1 seek=2048 conv=notrunc,fsync 2>/dev/null || return 1
+    dd if="$misc" of=/run/bc-check.bin bs=1 skip=2048 count=32 2>/dev/null || return 1
+    if cmp -s /run/bc-check.bin "$1"; then log "stage=$2 dev=$misc"; else log "stage=$2-MISMATCH dev=$misc"; return 1; fi
+}
 setup_usb_gadget() {
     /usr/sbin/u30pro-usb start ncm || return 1
     ip link set usb0 up
