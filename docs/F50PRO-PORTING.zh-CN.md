@@ -68,9 +68,62 @@ B28 的 `sim_gpio_ctl.ko` 不引用板号，仍只解析
 `f50pro-6.12` 机型包已从空工作区构建完成，构建内置的测试全部通过，
 并确认包内根文件系统带有上述卡位表、`card_stacks` 和网页改动。
 
-**尚未验证**：板号 6 没有在 OpenWrt 下启动过，切卡、射频、蜂窝联网、
-卡源组合和双待均未实测；上表来自原厂固件静态分析和一次只读状态读取。
-B28 的 DT、基带和 AIC 固件也没有与 B22 样机逐项对照。
+### 板号 6 首次 RAM 试启动（2026-11-22）
+
+用户授权后在本机执行一次 RAM 试启动并返回 Android。与此前 board 4 样机
+不同，本机 B 槽出厂为空（`spl_b` 与 `spl_a` 相同，其余全为零），只同步
+`uboot sml teecfg trustos vbmeta` 不足以启动。本机 bootloader 日志
+（`uboot_log`）显示它在启动内核前按槽读取并校验更多镜像，且
+`allow_verification_error is 0`，因此 B 槽共写入 20 个分区（385 MiB）：
+
+- 自 A 槽复制 17 个：`uboot sml teecfg trustos vbmeta vbmeta_system
+  vbmeta_system_ext vbmeta_vendor vbmeta_product vbmeta_odm dtbo l_agdsp
+  pm_sys ch_sys nr_phy nr_phy_npi nr_modem`；
+- 试验镜像 3 个：`boot vendor_boot init_boot`，模板取自本机 A 槽，参数为
+  board 6、卡位 1、双待 0、chip 1、psim 1。
+
+全部回读核对后才写入 32 字节试启动记录（B 优先级 15、剩余 2 次、未成功）。
+没有写 A 槽、NV／校准分区或 GPT。
+
+`tools/f50pro-ram-trial.py` 原先无法生成本次试验：gzip 根（39.2 MB）加内核
+（18.6 MB）超过 48 MiB 边界。现改为 xz（根 27 MB，启动载荷 46.5 MB），
+`ram-init` 以 `xzcat | tar` 解包。
+
+bootloader 日志记录的过程：读到 B 槽优先后，把启动分区标志由 1 改为 2 并
+重启；随后 `Attempting slot b, tries_remaining 2`、`Booting slot_b`。安全
+校验的 10 项均为 `verify_ret:0x0`，AVB 打开 16 个 B 槽分区后给出
+`avb slot verify OK!`。下一次启动把标志改回 1 并进入 A 槽。
+
+RAM 系统启动约 2 分钟时的只读检查：
+
+- 内核 `6.12.94-u30pro-p1`，根在 400 MB tmpfs 中占 94 MB。
+- `misc` 引导记录已恢复为 Android 原值；`write_protect=Y`，`mmcblk0` 只读；
+  `u30pro-nvsyncd --writeback=off`；600 秒回退进程存在。
+- 卡位导入结果 `f50pro_card=1`、`data_sim=1`、`dual_standby=0`、
+  `f50pro_route0=2`、`f50pro_route1=1`；驱动 `layout=mu3356`、
+  `chip_select=1`、`psim_select=1`，与本节卡位表一致。
+- 逻辑栈 1（内置 1，电信）蜂窝数据建立，取得 IPv4 与 IPv6 地址并成为默认
+  路由；Wi-Fi AP、uhttpd、dnsmasq 运行。
+
+试验后回到 Android A 槽，引导记录与试验前逐字节相同；B 槽 20 个分区的
+SHA-256 与写入清单一致，其余 B 槽分区仍为空。此后原厂 Android 选用内置 2
+（联通）时的读数为 `zte_webserver_sim_slot_id=2`、
+`gsm.sim.state=LOADED,ABSENT`、`gpio_sim_ctrl` 读回 `00`（选择位 0）、
+`gpio_sim_ctrl_psim=1`，即位置 2 在逻辑栈 0、psim 为 1，与卡位表相符。
+这是原厂侧读数，不是 OpenWrt 下的验证。
+
+**仍未验证**：
+
+- OpenWrt 下只走通了内置 1（电信）。内置 2（联通）、两张外置卡、切卡、
+  卡源组合和双待均未实测。
+- 没有采集 AT 注册与信号状态。原生内核没有 `/proc/driver/board_id`，运行期
+  是否由启动参数识别出板号 6 未核对（试验参数显式给出了板号）。
+- `wcn-thmzone`、`usb-thmzone` 读数无效（124872），内核持续输出
+  `sprd-shell-thm: reading wcn-thmzone failed`。
+- 回退路径没有被触发：本次试验正常启动，返回 Android 依靠 init 提前恢复的
+  引导记录。
+- 试验镜像使用默认 SSH 口令和默认 SSID（`U30Pro-OpenWrt`），不适合长期运行。
+- B28 的 DT、基带和 AIC 固件没有与 B22 样机逐项对照。
 
 ## 2026-11-05：去除多余的独立 DTB 同步与备份
 
