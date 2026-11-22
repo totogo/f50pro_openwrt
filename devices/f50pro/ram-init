@@ -39,8 +39,9 @@ for node in /sys/class/block/mmcblk*; do
 done
 (sleep 600;sync;reboot -f) &
 mount -t tmpfs -o size=400m,mode=0755 tmpfs /newroot || rescue ram-root
-tar -xzf /trial-root.tar.gz -C /newroot || rescue root-unpack
-rm /trial-root.tar.gz
+set -o pipefail
+xzcat /trial-root.tar.xz | tar -x -C /newroot || rescue root-unpack
+rm /trial-root.tar.xz
 [ "$(cat /newroot/etc/mu300/model)" = f50pro ] || rescue product-mismatch
 for name in u30pro-nfc mu300-post unisoc-ota; do
     rm -f /newroot/etc/rc.d/S[0-9][0-9]"$name"
