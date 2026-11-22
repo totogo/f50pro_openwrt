@@ -4,6 +4,74 @@
 `20260321.130936`，不是 U30 Pro 的 MU5358 资料。
 本页是适配证据记录，不表示已经提供正式 F50 Pro 安装包。
 
+## 2026-11-22：board_id 6（B28，电信＋联通两贴两插）
+
+另一台 MU3356 为 `F50ProV1.0.0B28` / Android 15 / `20260818.180242`，
+`/proc/driver/board_id` 与 `zteboot.zte_boardid` 均为 **6**。B22 的
+`BoardIdConfigEnum` 没有这个板号，旧卡位表只认 0～5，因此该机被当成未知
+板型：安装时不导入卡位，运行时不提供卡源管理。本节只读取原厂 Android，
+没有写分区、切卡、发 AT 或启动 OpenWrt。
+
+B28 的 `ZteWebServerPlus.apk` 新增
+`MU3356_CHIP_CARD_CT_CU_TWO_PHYSICAL_CARD`：boardId 6、
+`TWO_CHIP_CARD_TWO_PHYSICAL_CARD`，内置电信＋联通，外置两卡。
+`vendor-telephony-common.jar` 为它单独提供
+`handleTwoEsimCUCTAndTwoPsimBootAction()`、
+`readSelectSlot0SimForMU3356CUCT()` 和 `setSelectSlot0SimForMU3356CUCT()`；
+逻辑栈 1 仍走原有的 `readSelectSlot1SimForMU3356()`。
+
+| 原始卡位 | 逻辑栈 | 原厂模块参数 | 参数值 |
+| --- | --- | --- | --- |
+| 内置 2（联通） | 0 | gpio_sim_ctrl_psim | 1 |
+| 内置 1（电信） | 1 | gpio_sim_ctrl | 1 |
+| 外置 SIM 2，原始位置 3 | 0 | gpio_sim_ctrl_psim | 0 |
+| 外置 SIM 1，原始位置 4 | 1 | gpio_sim_ctrl | 0 |
+
+即板号 4 的接线，只是逻辑栈 0 的内置卡由位置 0 换成位置 2。**位置 2 在
+板号 3 属于逻辑栈 1，在板号 6 属于逻辑栈 0**，不能再按卡位编号推断逻辑栈。
+三处证据互相印证：
+
+- 启动流程对位置 2/3 读写 `gpio_sim_ctrl_psim`（2 写 1，3 写 0），对位置
+  1/4 读写 `gpio_sim_ctrl`（1 写 1，4 写 0），并分别关闭逻辑栈 0／1。
+- APK 的 `NetworkSettingUtils.getPhoneIdBySettings()` 只在
+  `isMU3356CtCuBordId6Card()` 为真时把位置 2 映射到 phone 0。
+- 板号 6 的 hardwareDifference 与板号 3/4 相同，`needReversePsimMapping()`
+  仍为真：外置 SIM 1/2 仍对应原始位置 4/3。
+
+B28 的 `sim_gpio_ctl.ko` 不引用板号，仍只解析
+`androidboot.simswitch`／`psimswitch`，所以选择器极性对所有 MU3356 板型
+相同，原生驱动的 `chip_select`／`psim_select` 归一化可直接沿用。该机
+启动参数没有这两项，原生驱动默认两个选择器均为高，即内置 2＋内置 1，
+与原厂当前状态一致。
+
+该机原厂实测：`zte_webserver_sim_slot_id=1`、
+`car_mode_dual_sim_switch=0`、`gpio_sim_ctrl` 读回 `01`（选择位 1）、
+`gpio_sim_ctrl_psim=1`，逻辑 SIM2 已加载，逻辑 SIM1 未启用。按新表导入为
+`f50pro_card=1`、`data_sim=1`、卡源组合 `[2,1]`、射频策略 `0 1`。
+
+改动范围：
+
+- `f50pro-card.sh` 接受板号 6，卡位 `1 2 3 4`，映射如上表；板型覆盖
+  选项同步增加 6。
+- `mu300-physical-sim status` 新增 `card_stacks`，与 `cards` 一一对应，
+  取自同一份卡位表。网页的卡源组合、切卡后查看卡槽和卡槽可用性改用它；
+  旧后端没有该字段时沿用原规则。此前三处写死“位置 0/3 属于逻辑栈 0”，
+  板号 6 会把内置 2 列到 IMEI2 下，提交后被后端拒绝。
+- 内置卡名称沿用“内置 SIM＋(位置＋1)”：板号 6 显示内置 SIM 2／3，
+  与板号 3 显示 1／3 的既有约定一致，不按运营商命名。
+
+离线结果（Linux x86_64，Debian 13）：`test_f50pro_cards`、
+`test_product_form`、`test_physical_sim_rf`、`test_u30pro_cards`、
+`test_v50_sim` 共 69 项全部通过；`tests/dashboard_sim.js` 通过，并确认
+恢复旧 `sim.js` 时新增用例失败。`tests/` 全量 1432 项中有 80 项失败，
+与未改动的上游在同一台机器上的失败集合完全相同，均与本改动无关。
+`f50pro-6.12` 机型包已从空工作区构建完成，构建内置的测试全部通过，
+并确认包内根文件系统带有上述卡位表、`card_stacks` 和网页改动。
+
+**尚未验证**：板号 6 没有在 OpenWrt 下启动过，切卡、射频、蜂窝联网、
+卡源组合和双待均未实测；上表来自原厂固件静态分析和一次只读状态读取。
+B28 的 DT、基带和 AIC 固件也没有与 B22 样机逐项对照。
+
 ## 2026-11-05：去除多余的独立 DTB 同步与备份
 
 首个完整安装包在 backup 阶段报 Unsupported backup partition：F50 Pro

@@ -80,10 +80,16 @@ function slotName(slot, info) {
     }
     return 'SIM '+(Number(slot)+1);
 }
+// A card's logical stack is the device's own card map (card_stacks). The ID
+// rule is only for a backend that predates that field; MU3356 board 6 breaks it.
+function cardStack(physical, id) {
+    var stack=((physical || {}).card_stacks || [])[((physical || {}).cards || []).indexOf(id)];
+    return stack===0 || stack===1 ? stack : (id===0 || id===3 ? 0 : 1);
+}
 function slotSupported(slot, info) {
     var physical=(info || simInfo || {}).physical;
     if(physical && physical.supported && ['f50pro','u30pro','v50'].includes(physical.model) && Array.isArray(physical.cards))
-        return physical.cards.some(function(id){return (id===0 || id===3?0:1)===Number(slot);});
+        return physical.cards.some(function(id){return cardStack(physical,id)===Number(slot);});
     return Number(slot)===0 || (info || {}).slots!==1;
 }
 var simSelectorCleanup = null, simSelectorGeneration = 0;
@@ -2295,7 +2301,7 @@ return baseclass.extend({
 	callSmsList: callSmsList, callSmsShow: callSmsShow, callSmsSend: callSmsSend, callSmsJob: callSmsJob,
 	callSmsDel: callSmsDel, callSmsSync: callSmsSync,
 	callForwardGet: callForwardGet, callForwardStatus: callForwardStatus,
-	callSimGet: callSimGet, simSelector: simSelector, slotName: slotName, slotSupported: slotSupported, selectedSlot: selectedSlot, resolveSelectedSlot: resolveSelectedSlot, selectViewedSlot: selectViewedSlot,
+	callSimGet: callSimGet, simSelector: simSelector, slotName: slotName, slotSupported: slotSupported, cardStack: cardStack,selectedSlot: selectedSlot, resolveSelectedSlot: resolveSelectedSlot, selectViewedSlot: selectViewedSlot,
 	callForwardSet: callForwardSet, callForwardTest: callForwardTest, callForwardClear: callForwardClear,
 	callTrafficExport: callTrafficExport, callTrafficImport: callTrafficImport,
 	callTrafficGet: callTrafficGet, callTrafficSet: callTrafficSet,

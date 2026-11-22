@@ -87,12 +87,15 @@ class F50ProCards(fixtures.PhysicalCardsFixture):
         self.assertLess(service.index(': > /run/u30pro-cp-started'),service.index('procd_set_param command /usr/sbin/u30-modemd'))
 
     def test_all_production_layouts_and_no_operator_filter(self):
-        expected={0:[0,1,2],1:[0,1],2:[0,2],3:[0,2,3,4],4:[0,1,3,4],5:[3,4]}
+        expected={0:[0,1,2],1:[0,1],2:[0,2],3:[0,2,3,4],4:[0,1,3,4],5:[3,4],6:[1,2,3,4]}
+        # Card 2 is on stack 1 on boards 0/2/3 and on stack 0 on board 6.
+        stacks={0:[0,1,1],1:[0,1],2:[0,1],3:[0,1,0,1],4:[0,1,0,1],5:[0,1],6:[1,0,0,1]}
         for shell in self.each_shell():
             for board,cards in expected.items():
                 self.args.write_bytes(f'zteboot.zte_boardid={board}\0'.encode())
                 data=json.loads(self.call(shell,'status').stdout)
                 self.assertEqual((data['model'],data['cards']),('f50pro',cards))
+                self.assertEqual(data['card_stacks'],stacks[board])
                 for target in range(5):
                     self.assertEqual(self.call(shell,'validate',str(target)).returncode==0,target in cards)
         self.assertFalse((self.tmp/'commands').exists())
@@ -109,7 +112,7 @@ class F50ProCards(fixtures.PhysicalCardsFixture):
 
     def test_stock_inverse_mapping_for_every_production_board_and_mux_state(self):
         for shell in self.each_shell():
-            for board in range(6):
+            for board in range(7):
                 self.args.write_bytes(f'zteboot.zte_boardid={board}\0'.encode())
                 for chip in (0,1):
                     for psim in (0,1):
@@ -117,12 +120,32 @@ class F50ProCards(fixtures.PhysicalCardsFixture):
                         (self.hw/'psim_select').write_text(str(psim))
                         expected={0:[0,1 if chip==0 else 2],1:[0,1],2:[0,2],
                                   3:[0 if psim else 3,2 if chip else 4],
-                                  4:[0 if psim else 3,1 if chip else 4],5:[3,4]}[board]
+                                  4:[0 if psim else 3,1 if chip else 4],5:[3,4],
+                                  6:[2 if psim else 3,1 if chip else 4]}[board]
                         for slot in (0,1):
                             (self.run/'mu300-data-sim-actual').write_text(str(slot))
                             status=json.loads(self.call(shell,'status').stdout)
                             self.assertEqual(status['logical_cards'],expected,(board,chip,psim))
                             self.assertEqual(status['active_card'],expected[slot])
+
+    def test_board_6_stock_selection_imports_with_card_2_on_stack_zero(self):
+        # F50ProV1.0.0B28 handleTwoEsimCUCTAndTwoPsimBootAction: cards 2/3 use
+        # gpio_sim_ctrl_psim (stack 0), cards 1/4 use gpio_sim_ctrl (stack 1).
+        # The import below is the state read from a stock board 6 unit.
+        destination=self.tmp/'board6-root'
+        for shell in self.each_shell():
+            state=dict(self.initial);state.pop('f50pro_card');self.state.write_text(json.dumps(state))
+            code=f'. "{LIB}"\nf50pro_import_card "{destination}" 6 1 0 1 1\n'
+            self.assertEqual(self.sh(shell,code,**self.extra).returncode,0)
+            r=self.script(shell,destination/'etc/uci-defaults/99-zz-f50pro-card',**self.extra)
+            self.assertEqual(r.returncode,0,r.stderr)
+            state=json.loads(self.state.read_text())
+            self.assertEqual([state[k] for k in ('f50pro_card','data_sim','f50pro_route0','f50pro_route1')],[1,1,2,1])
+            # Card 0 does not exist on this board, and card 2 is not a stack 1 source.
+            for code in (f'. "{LIB}"\nf50pro_import_card "{self.tmp}/no-card0" 6 0\n',
+                         f'. "{LIB}"\ncase $(f50pro_card_map 6 2) in "1 "*) exit 0;; esac; exit 1\n'):
+                self.assertNotEqual(self.sh(shell,code,**self.extra).returncode,0)
+        self.assertFalse((self.tmp/'commands').exists())
 
     def test_second_external_card_uses_stack_one_and_shared_power_order(self):
         for shell in self.each_shell():

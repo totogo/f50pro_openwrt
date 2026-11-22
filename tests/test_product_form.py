@@ -107,6 +107,7 @@ elif args[0]=='batch':
         self.product('f50pro',4);f=self.get()
         self.assertEqual(u['options'][4]['cards'],[0,1,2,3])
         self.assertEqual(f['options'][4]['cards'],[0,1,3,4])
+        self.assertEqual(f['options'][6]['cards'],[1,2,3,4])
         self.assertNotIn('1000',[o['value'] for o in f['options']])
 
     def test_save_freezes_old_effective_form_until_boot(self):
