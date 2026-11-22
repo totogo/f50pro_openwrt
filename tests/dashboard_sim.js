@@ -11,10 +11,13 @@ common.selectViewedSlot(1); assert.equal(common.selectedSlot(),'1');
 assert.equal(common.selectViewedSlot(2),false); assert.equal(common.selectedSlot(),'1');
 common.callAt('AT'); common.selectViewedSlot(0);
 assert.deepEqual(called[0],['at',['AT','1']]);
-for(const [routes,names] of [[[0,4],['Built-in SIM 1','External SIM 1']],[[3,4],['External SIM 2','External SIM 1']],[[0,1],['Built-in SIM 1','Built-in SIM 2']]]) {
+for(const [routes,names] of [[[0,4],['Built-in SIM 1','External SIM 1']],[[3,4],['External SIM 2','External SIM 1']],[[0,1],['Built-in SIM 1','Built-in SIM 2']],[[2,1],['Built-in SIM 3','Built-in SIM 2']]]) {
     const info={physical:{model:'f50pro',ready:true,logical_cards:routes}};
     for(const slot of [0,1])assert.equal(common.slotName(slot,info),names[slot]);
 }
+// MU3356 board 6 puts built-in card 2 on stack 0; only the device's own map knows.
+assert.equal(common.cardStack({cards:[1,2,3,4],card_stacks:[1,0,0,1]},2),0);
+assert.equal(common.cardStack({cards:[0,2,3,4]},2),1,'a backend without card_stacks keeps the previous ID rule');
 assert.equal(common.slotName(1,{physical:{model:'u30pro',ready:true,logical_cards:[3,4]}}),'SIM 2');
 assert.equal(common.slotName(0,{physical:{model:'u30pro',ready:false,logical_cards:[3,2]}}),'External SIM 1');
 assert.equal(common.slotName(1,{physical:{model:'v50',ready:true,logical_cards:[3,2]}}),'Built-in SIM 3');
@@ -90,10 +93,13 @@ const tick=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
         assert.equal(common.selectedSlot(),'1');
         view.unload();
     }
-    for(const [model,board,cards,target] of [['v50',0,[0,1,2],2],['v50',1,[0,1,2,3],3],['v50',2,[0,1,3],3],['v50',3,[0,1],1],['u30pro',0,[0,1,2,3],3],['u30pro',1,[0,1,2],2],['u30pro',2,[0,1],1],['u30pro',3,[0,1,3],3],['u30pro',4,[0,1,2,3],2],['u30pro',5,[3],3],['u30pro',6,[0,2],2],['f50pro',0,[0,1,2],2],['f50pro',1,[0,1],1],['f50pro',2,[0,2],2],['f50pro',3,[0,2,3,4],4],['f50pro',4,[0,1,3,4],4],['f50pro',4,[0,1,3,4],3],['f50pro',5,[3,4],4],['f50pro',5,[3,4],3]]) {
+    for(const [model,board,cards,target] of [['v50',0,[0,1,2],2],['v50',1,[0,1,2,3],3],['v50',2,[0,1,3],3],['v50',3,[0,1],1],['u30pro',0,[0,1,2,3],3],['u30pro',1,[0,1,2],2],['u30pro',2,[0,1],1],['u30pro',3,[0,1,3],3],['u30pro',4,[0,1,2,3],2],['u30pro',5,[3],3],['u30pro',6,[0,2],2],['f50pro',0,[0,1,2],2],['f50pro',1,[0,1],1],['f50pro',2,[0,2],2],['f50pro',3,[0,2,3,4],4],['f50pro',4,[0,1,3,4],4],['f50pro',4,[0,1,3,4],3],['f50pro',5,[3,4],4],['f50pro',5,[3,4],3],['f50pro',6,[1,2,3,4],2],['f50pro',6,[1,2,3,4],4]]) {
         common.selectViewedSlot('0');const requests=[],confirmations=[];
         const physical={ok:1,supported:true,ready:true,model,board_id:board,cards,active_card:0,saved_card:0,logical_cards:model==='f50pro'?[cards.includes(0)?0:3,cards.includes(1)?1:cards.includes(2)?2:4]:[]};
-        const M={injectCss(){},localizeMenu(){},translate:s=>s,selectViewedSlot:common.selectViewedSlot,
+        // Only board 6 reports card_stacks here, so the other layouts keep covering the ID fallback.
+        const board6=model==='f50pro'&&board===6,stack=id=>board6?[1,0,0,1][cards.indexOf(id)]:id===0||id===3?0:1;
+        if(board6)physical.card_stacks=[1,0,0,1];
+        const M={injectCss(){},localizeMenu(){},translate:s=>s,selectViewedSlot:common.selectViewedSlot,cardStack:common.cardStack,
             confirmBox:(title,body)=>{confirmations.push(body);return Promise.resolve(true);},busy(){},toast:()=>({close(){}})};
         const rpc={declare:o=>arg=>{
             if(o.method==='physical_sim_get')return Promise.resolve({...physical});
@@ -120,13 +126,13 @@ const tick=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
         if(model==='f50pro') {
             const source0=all(root,'select').find(n=>n.id==='mud-f50-source0');
             const source1=all(root,'select').find(n=>n.id==='mud-f50-source1');
-            assert.deepEqual(source0.children.map(n=>Number(n.value)),cards.filter(n=>n===0||n===3));
-            assert.deepEqual(source1.children.map(n=>Number(n.value)),cards.filter(n=>n!==0&&n!==3));
+            assert.deepEqual(source0.children.map(n=>Number(n.value)),cards.filter(n=>stack(n)===0));
+            assert.deepEqual(source1.children.map(n=>Number(n.value)),cards.filter(n=>stack(n)===1));
         }
         const button=all(root,'button')[1];select.value=String(target);button.onclick();await tick();
         assert.deepEqual(requests,[model+'-card-'+target]);
         if(model==='f50pro' && target>=3)assert.deepEqual(confirmations,[target===4?'外置 SIM 1':'外置 SIM 2']);
-        assert.equal(common.selectedSlot(),target===0||target===3?'0':'1','physical IDs never become AT slot IDs');
+        assert.equal(common.selectedSlot(),String(stack(target)),'physical IDs never become AT slot IDs');
         if(model==='f50pro') {
             const source0=all(root,'select').find(n=>n.id==='mud-f50-source0');
             const source1=all(root,'select').find(n=>n.id==='mud-f50-source1');
@@ -135,10 +141,10 @@ const tick=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
             requests.length=0;
             all(root,'button').find(n=>n.id==='mud-f50-pair-apply').onclick();await tick();
             assert.deepEqual(requests,['f50pro-pair-'+first+'-'+second]);
-            assert.equal(common.selectedSlot(),target===0||target===3?'0':'1','source combinations do not change the viewed/data slot');
+            assert.equal(common.selectedSlot(),String(stack(target)),'source combinations do not change the viewed/data slot');
         }
         physical.ready=false;await view.refresh();assert(button.disabled);
         view.unload();
     }
-    console.log('SIM UI: scoped RPC, shared controls, V50/U30 Pro and all six F50 Pro hardware variants pass; reversed external labels retain native card IDs');
+    console.log('SIM UI: scoped RPC, shared controls, V50/U30 Pro and all seven F50 Pro hardware variants pass; reversed external labels retain native card IDs');
 })().catch(e=>{console.error(e);process.exitCode=1;});

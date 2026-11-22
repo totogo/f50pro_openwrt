@@ -43,13 +43,17 @@ class PublicInputs(unittest.TestCase):
             def load(path,*args,**kwargs):
                 if Path(path)==TOP/'openwrt/lpac-state.py':
                     return {'inspect':inspect}
+                # Wi-Fi and Bluetooth inputs have their own checks; stub them like lpac.
+                if Path(path) in (TOP/'openwrt/wifi-sae-state.py',TOP/'tools/ble-decoder/build.py'):
+                    return {'inspect':mock.Mock(),'check':mock.Mock()}
                 return original(path,*args,**kwargs)
 
             # The unused default must not reject otherwise selected inputs.
             with mock.patch.object(runpy,'run_path',side_effect=load), \
                     self.assertRaisesRegex(FileNotFoundError,'Makefile'):
                 build['check_inputs']({'installer_artifacts':self.root/'unused',
-                                      'kernel_source':self.root,'lpac_apks':lpac})
+                                      'kernel_source':self.root,'lpac_apks':lpac,
+                                      'wifi_apks':self.root,'bluetooth_decoder':self.root})
             inspect.assert_called_once_with(lpac)
 
     def test_missing_explicit_native_input_cannot_use_an_available_default(self):

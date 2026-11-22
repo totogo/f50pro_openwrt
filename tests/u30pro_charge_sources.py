@@ -133,7 +133,8 @@ static void cancel_delayed_work_sync(struct delayed_work *w){(void)w;cancelled++
 FUNCTIONS
 int main(int argc,char **argv){
  assert(argc==2);struct usb_phy phy={USB_CHARGER_PRESENT,SDP_TYPE};
- struct u30_sgm s={.usb_phy=&phy,.psy=&battery,.policy_on=true,.boot_vreg=0x88,.cv_max_uv=4400000,
+ // Static: fixture_charger keeps its address, which GCC 14 rejects for a local.
+ static struct u30_sgm s;s=(struct u30_sgm){.usb_phy=&phy,.psy=&battery,.policy_on=true,.boot_vreg=0x88,.cv_max_uv=4400000,
   .jeita_n=1,.jeita_idx=-1,.tbl_iin={500000,3000000,1500000,1000000},
   .tbl_ichg={700000,2000000,1500000,1000000}};
  s.jeita[0]=(struct sgm_jeita){.t_up=1000,.t_rec=970,.ichg=3000000,.cv=4400000};

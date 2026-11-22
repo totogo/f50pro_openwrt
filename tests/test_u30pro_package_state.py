@@ -53,6 +53,8 @@ class RetainedRoot(unittest.TestCase):
             result = run_path(path, *args, **kwargs)
             if Path(path) == TOP/'openwrt/stage-lpac.py':
                 result['install'] = self.lpac_install
+            if Path(path) == TOP/'openwrt/stage-wifi.py':
+                result['install'] = mock.Mock()
             return result
 
         patcher = mock.patch.object(package.runpy, 'run_path', side_effect=load)

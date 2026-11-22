@@ -241,7 +241,15 @@ install_part_pending() {
             sha256sum "$dft" | cut -d' ' -f1 > /part-root/openwrt/etc/mu300/device-files.stamp
             log "stage=part-install device-files"
         fi
-        [ -x /part-root/openwrt/sbin/init ] && [ -s /part-root/openwrt/lib/firmware/wcnmodem.bin ] ||
+        # The same completeness rule as desktop/android-image.sh: U30 Pro and
+        # F50 Pro carry their own modem map and no wcnmodem.bin.
+        if [ "$(cat /part-root/openwrt/etc/mu300/platform 2>/dev/null)" = u30pro ]; then
+            [ -s /part-root/openwrt/opt/mu300/vendor/u30pro/modem/map.tsv ] &&
+                [ -s /part-root/openwrt/opt/mu300/vendor/u30pro/modem/modem_cp_info.xml ] &&
+                [ -x /part-root/openwrt/usr/sbin/u30-modemd ]
+        else
+            [ -s /part-root/openwrt/lib/firmware/wcnmodem.bin ]
+        fi && [ -x /part-root/openwrt/sbin/init ] ||
             { umount /part-root; losetup -d "$lo"; umount "$mp"; part_fail 'incomplete system'; return 1; }
         mkdir -p /part-root/.mu300
         echo openwrt > /part-root/.mu300/boot-os

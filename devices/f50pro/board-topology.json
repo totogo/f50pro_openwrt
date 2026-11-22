@@ -109,6 +109,16 @@
         4
       ]
     },
+    "6": {
+      "builtin": [
+        1,
+        2
+      ],
+      "physical": [
+        3,
+        4
+      ]
+    },
     "1000": {
       "builtin": [
         0
@@ -157,6 +167,55 @@
   "board_5_logical_stacks": {
     "3": 0,
     "4": 1
+  },
+  "board_6_stock_routing": {
+    "scope": "Stock Android module parameters, as for boards 3/4. Board 6 has no card 0; built-in card 2 takes its place on stack 0, unlike board 3 where card 2 is on stack 1",
+    "firmware": "F50ProV1.0.0B28 / Android 15 / 20260818.180242",
+    "sources": {
+      "apk": {
+        "device_path": "/system/priv-app/ZteWebServerPlus/ZteWebServerPlus.apk",
+        "sha256": "926b595873e261db69b9014b0bc745b994e29db0552d68a7e1cbc43f31fe19cc",
+        "evidence": "BoardIdConfigEnum.MU3356_CHIP_CARD_CT_CU_TWO_PHYSICAL_CARD: boardId 6, TWO_CHIP_CARD_TWO_PHYSICAL_CARD, eSIM CT+CU, pSIM 1+2. NetworkSettingUtils.getPhoneIdBySettings returns phone 0 for card 2 only when isMU3356CtCuBordId6Card. needReversePsimMapping stays true, so external 1/2 remain raw cards 4/3"
+      },
+      "framework": {
+        "device_path": "/system/framework/vendor-telephony-common.jar",
+        "sha256": "600edb6d53fefa464503a3d8958ccd15befce847648528a4b0439df8c738a2a0",
+        "class": "com.android.vts.VendorSubInfoUpdater",
+        "methods": [
+          "isTwoEsimCUCTTwoPsimBoardNoBattery",
+          "handleTwoEsimCUCTAndTwoPsimBootAction",
+          "readSelectSlot0SimForMU3356CUCT",
+          "setSelectSlot0SimForMU3356CUCT",
+          "readSelectSlot1SimForMU3356"
+        ]
+      },
+      "stock_mux_module": {
+        "file": "sim_gpio_ctl.ko",
+        "sha256": "7fc88d45cb8c5509429c68f24b436536a96a5d2bd2a4c2391a6eb201ce7ea1d1",
+        "evidence": "No board_id reference; one selector polarity for every MU3356 board"
+      }
+    },
+    "1": {
+      "logical_stack": 1,
+      "parameter": "gpio_sim_ctrl",
+      "value": 1
+    },
+    "2": {
+      "logical_stack": 0,
+      "parameter": "gpio_sim_ctrl_psim",
+      "value": 1
+    },
+    "3": {
+      "logical_stack": 0,
+      "parameter": "gpio_sim_ctrl_psim",
+      "value": 0
+    },
+    "4": {
+      "logical_stack": 1,
+      "parameter": "gpio_sim_ctrl",
+      "value": 0
+    },
+    "validation": "Static analysis of the B28 files above, plus a read-only stock Android reading on one board 6 unit: selected card 1, gpio_sim_ctrl select 1, gpio_sim_ctrl_psim 1, no androidboot.simswitch/psimswitch, logical SIM2 loaded. RAM trial boot on that unit on 2026-11-22: the import gave card 1, routes [2,1], chip_select 1, psim_select 1, and cellular data came up on logical stack 1 (card 1). A later stock reading with card 2 selected: gpio_sim_ctrl select 0, gpio_sim_ctrl_psim 1, logical SIM1 loaded. Under OpenWrt, card 2, the external cards, card switching and dual standby are untested"
   },
   "test_sku_1000_routing": "Not verified by the stock framework branches; enum capability alone does not prove mux routing",
   "hardware_validation": "Authorized trial-led-pair-20261105 on MU3356 board 4: sources [0,4] -> [3,4] -> [0,4] through real RPC jobs, peer-only changes preserved WAN uptime. DSDS on plus explicit enable confirmed CFUN [1,1]; DSDS off restored [0,1]; single-standby mutual exclusion [1,0], both-off [0,0] and original restore [0,1] passed. IPv4/IPv6 ping each 3/3 before and after RF tests. Actual SIM/LED web views and mobile layouts passed. PMIC white channel registration, brightness and exclusive colour readback passed, but user did not inspect real colours/boot animation. NV writeback off and storage read-only throughout. Normal return to stock Android A completed, original selected card/DSDS/mux confirmed. Two real external cards, OTG and NFC remain unaccepted; not a blanket acceptance for other boards. RF caption follow-up is source/browser tested after Android return, not deployed.",

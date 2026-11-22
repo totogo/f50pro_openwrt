@@ -75,6 +75,14 @@ status)
     value=$(cfg "${model}_card")
     if card_map "$board" "$value" >/dev/null; then saved=$value; fi
     cards=$(cards "$board" | tr ' ' ',')
+    # Each card's logical stack, from the map that drives the mux. A client
+    # must not infer it from the card ID: MU3356 routes card 2 to stack 1 on
+    # board 3 and to stack 0 on board 6.
+    stacks=
+    for card in $(cards "$board"); do
+        mapping=$(card_map "$board" "$card") || mapping=null
+        stacks="$stacks${stacks:+,}${mapping%% *}"
+    done
     if [ "$model" = f50pro ] || [ "$model" = u30pro ] || [ "$model" = v50 ]; then
         first=null; second=null
         if hw_ready; then
@@ -88,8 +96,8 @@ status)
             extra="$extra,\"saved_routes\":[$(cfg f50pro_route0 | grep -x '[0-4]' || echo null),$(cfg f50pro_route1 | grep -x '[0-4]' || echo null)]"
         fi
     fi
-    printf '{"ok":1,"supported":true,"ready":%s,"board_id":%s,"cards":[%s],"active_card":%s,"saved_card":%s,"chip_select":%s,"psim_select":%s,"model":"%s"%s}\n' \
-        "$ready" "$board" "$cards" "$actual" "$saved" "$chip" "$psim" "$model" "$extra"
+    printf '{"ok":1,"supported":true,"ready":%s,"board_id":%s,"cards":[%s],"card_stacks":[%s],"active_card":%s,"saved_card":%s,"chip_select":%s,"psim_select":%s,"model":"%s"%s}\n' \
+        "$ready" "$board" "$cards" "$stacks" "$actual" "$saved" "$chip" "$psim" "$model" "$extra"
     exit 0;;
 validate) validate "${2:-}"; hw_ready || fail physical_mux_unavailable; exit 0;;
 boot)

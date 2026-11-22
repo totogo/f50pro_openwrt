@@ -346,7 +346,10 @@ def sources(refresh=False):
         if any(p.name not in {Path(n).name for n in board['files'] if n.startswith('odm/firmware/aic8800/')} for p in link.iterdir()):
             raise ValueError('Unowned files in old firmware staging')
         shutil.rmtree(link)
-    if not link.is_symlink():link.symlink_to('../../opt/mu300/vendor/u30pro/firmware/aic8800')
+    if not link.is_symlink():
+        # A fresh workspace has no odm/firmware yet; only a retained root does.
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to('../../opt/mu300/vendor/u30pro/firmware/aic8800')
     old=ROOT/'etc/u30pro/modem'
     if old.is_dir() and not old.is_symlink():shutil.rmtree(old)
     mapfile = ROOT / 'opt/mu300/vendor/u30pro/modem/map.tsv'

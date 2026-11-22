@@ -88,7 +88,7 @@ return view.extend({
                 var current=r.saved_card==null?r.active_card:r.saved_card;
                 if(current!=null)physicalSelect.value=String(current);
             }
-            var layouts=r.model==='f50pro'?{0:'3内置卡',1:'2内置卡',2:'2内置卡',3:'2内置卡 + 2插拔卡',4:'2内置卡 + 2插拔卡',5:'2插拔卡'}:r.model==='u30pro'?{0:'3内置卡 + 1插拔卡',1:'3内置卡',2:'2内置卡',3:'2内置卡 + 1插拔卡',4:'3内置卡 + 1插拔卡',5:'1插拔卡',6:'2内置卡'}:{0:'3内置卡',1:'3内置卡 + 1插拔卡',2:'2内置卡 + 1插拔卡',3:'2内置卡'};
+            var layouts=r.model==='f50pro'?{0:'3内置卡',1:'2内置卡',2:'2内置卡',3:'2内置卡 + 2插拔卡',4:'2内置卡 + 2插拔卡',5:'2插拔卡',6:'2内置卡 + 2插拔卡'}:r.model==='u30pro'?{0:'3内置卡 + 1插拔卡',1:'3内置卡',2:'2内置卡',3:'2内置卡 + 1插拔卡',4:'3内置卡 + 1插拔卡',5:'1插拔卡',6:'2内置卡'}:{0:'3内置卡',1:'3内置卡 + 1插拔卡',2:'2内置卡 + 1插拔卡',3:'2内置卡'};
             physicalNote.textContent=M.translate(layouts[r.board_id]||'SIM')+' · '+M.translate('当前上网卡')+'：'+
                 (r.active_card==null?M.translate('未连接'):physicalName(r.active_card));
             if(!r.ready)physicalNote.textContent+=' · '+message('physical_mux_unavailable');
@@ -120,7 +120,7 @@ return view.extend({
                 [0,1].forEach(function(slot){
                     var row=el('div',null,'mud-data-sim-controls'),label=el('label','IMEI'+(slot+1)+' · '+M.translate('卡源'));
                     var select=el('select');select.id='mud-f50-source'+slot;label.htmlFor=select.id;
-                    choices.filter(function(id){return (id===0||id===3?0:1)===slot;}).forEach(function(id){
+                    choices.filter(function(id){return M.cardStack(physical,id)===slot;}).forEach(function(id){
                         var option=el('option',physicalName(id));option.value=String(id);select.append(option);
                     });
                     row.append(label,select);pairBox.append(row);pairSelects.push(select);
@@ -154,7 +154,7 @@ return view.extend({
                     var toast=M.toast('正在切换上网卡…',{type:'busy',timeout:0});
                     return start((physical.model==='f50pro'?'f50pro':physical.model==='u30pro'?'u30pro':'v50')+'-card-'+target).then(function(r){
                         if(!r.ok||!r.id)throw new Error(r.error||'网络设置提交失败');return wait(r.id);
-                    }).then(function(){M.selectViewedSlot(target===0||target===3?'0':'1',true);M.toast('上网卡切换完成',{type:'success'});})
+                    }).then(function(){M.selectViewedSlot(String(M.cardStack(physical,target)),true);M.toast('上网卡切换完成',{type:'success'});})
                       .catch(function(e){if(root.isConnected)M.toast(message(e.message),{type:'error'});})
                       .finally(function(){toast.close();});
                 }).finally(function(){

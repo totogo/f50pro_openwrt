@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 from pathlib import Path
 import struct
 import shlex
@@ -579,5 +580,79 @@ desktop_free_loop
         self.assertTrue(install.call_args.args[0].data)
         self.assertIn('EXPERIMENTAL',output.getvalue())
         self.assertIn('Android F2FS',output.getvalue())
+
+    def test_root_shell_uses_the_first_su_that_works(self):
+        # Magisk can leave su off adb's PATH. The GUI backend probes these same
+        # places and shrinks userdata before this class is ever constructed.
+        def device(working):
+            log=[]
+            def call(android,*args,**kwargs):
+                if args[0]=='devices':return b'List of devices attached\nTEST device model:MU3356\n'
+                prefix,script=args[1].split(' -c ',1);script=shlex.split(script)[0];log.append(prefix)
+                if prefix!='sh' and prefix not in working:raise RuntimeError(prefix+': inaccessible or not found')
+                if script=='id -u':return b'2000\n' if prefix=='sh' else b'0\n'
+                return {'getprop ro.product.model; getprop ro.product.device':b'MU3356\nF50Pro\n',
+                        'getprop ro.board.platform':b'ums9632\n','getprop ro.boot.slot_suffix':b'_a\n'}[script]
+            return call,log
+        args=Mock(adb='adb',serial='TEST',probe=True)
+        for working,expected in ((('su','/debug_ramdisk/su'),'su'),(('/debug_ramdisk/su','/sbin/su'),'/debug_ramdisk/su'),
+                                 (('/sbin/su',),'/sbin/su')):
+            with self.subTest(working=working):
+                call,log=device(working)
+                with patch.object(installer.Android,'call',call):android=installer.Android(args)
+                self.assertEqual(android.su,expected)
+                self.assertEqual(log[-1],expected)
+        call,_=device(())
+        with patch.object(installer.Android,'call',call),self.assertRaisesRegex(ValueError,'su permission'):
+            installer.Android(args)
+
+    def test_hotspot_country_follows_the_phone_on_pro_models_only(self):
+        for platform,prop,want in (('u30pro','CN','CHANNEL=36\nCOUNTRY=CN\n'),('u30pro','DE','CHANNEL=36\nCOUNTRY=DE\n'),
+                                   ('u30pro','','CHANNEL=36\nCOUNTRY=CN\n'),('f50','CN','CHANNEL=auto\nCOUNTRY=TR\n')):
+            with self.subTest(platform=platform,prop=prop),tempfile.TemporaryDirectory() as t:
+                t=Path(t);(t/'root/etc/mu300').mkdir(parents=True);(t/'root/etc/mu300/platform').write_text(platform+'\n')
+                (t/'bin').mkdir();fake=t/'bin/getprop';fake.write_text('#!/bin/sh\necho "$FAKE_CC"\n');fake.chmod(0o755)
+                (t/'desktop-settings.env').write_text("SSID='my ap'\nWIFI_KEY='pass word'\nAPN=\n")
+                subprocess.run(['sh','-euc','. "$1"; P=$2; desktop_configure "$3"','sh',str(TOP/'desktop/configure.sh'),str(t),str(t/'root')],
+                               check=True,env=dict(os.environ,PATH=str(t/'bin')+os.pathsep+os.environ['PATH'],FAKE_CC=prop))
+                self.assertEqual((t/'root/etc/mu300/hotspot.conf').read_text(),'SSID=my ap\nPSK=pass word\nBAND=5\n'+want)
+        # android-image.sh writes the same file from Android; keep the two rules identical.
+        rule=lambda name,root:(TOP/'desktop'/name).read_text().split('CH=auto; CC=TR\n',1)[1].split("printf 'SSID=",1)[0].replace(root,'ROOT').split()
+        self.assertEqual(rule('android-image.sh','"$R/'),rule('configure.sh','"$1/'))
+
+    def test_pro_init_serves_the_shared_offline_install_scripts(self):
+        # part-prepare.sh and install-part.sh are shared with boot/init; every
+        # helper of it that they call must exist on the U30 Pro / F50 Pro path.
+        defs=lambda path:set(re.findall(r'^\s*([A-Za-z_]\w*)\s*\(\)\s*\{',(TOP/path).read_text(),re.M))
+        scripts=['desktop/boot/'+n for n in ('part-prepare.sh','install-part.sh','part-progress.sh','ext4-geometry.sh','storage.sh')]
+        have=defs('devices/u30pro/init')|defs('devices/u30pro/boot-wait.sh')|defs('rootfs/overlay/opt/mu300/lib/storage.sh')
+        for path in scripts:have|=defs(path)
+        for path in scripts:
+            code=re.sub(r'#.*','',(TOP/path).read_text())
+            missing={n for n in defs('boot/init')-have if re.search(r'(^|[;&|({\s])'+n+r'(\s|;|$)',code,re.M)}
+            self.assertFalse(missing,path)
+        init=(TOP/'devices/u30pro/init').read_text()
+        helper=re.search(r'^write_misc_bc\(\) \{.*?^\}',init,re.S|re.M).group(0).replace('/run/','"$T"/')
+        with tempfile.TemporaryDirectory() as t:
+            t=Path(t);misc=t/'misc';misc.write_bytes(b'\xff'*4096);(t/'bc').write_bytes(live('b'))
+            script='log(){ echo "$*" >> "$T/log"; }\nmisc=$T/misc\n'+helper+'\nwrite_misc_bc "$T/bc" rearm'
+            subprocess.run(['sh','-c',script],check=True,env=dict(os.environ,T=str(t)))
+            self.assertEqual(misc.read_bytes(),b'\xff'*2048+live('b')+b'\xff'*2016)
+            self.assertEqual((t/'bc-check.bin').read_bytes(),live('b'))
+            self.assertIn('stage=rearm',(t/'log').read_text())
+            self.assertEqual(subprocess.run(['sh','-c',script.replace('misc=$T/misc','misc=')],env=dict(os.environ,T=str(t))).returncode,1)
+        # The finished root is judged like desktop/android-image.sh: a Pro root
+        # has its own modem map and no wcnmodem.bin.
+        check=(TOP/'desktop/boot/install-part.sh').read_text().split('carry their own modem map and no wcnmodem.bin.\n',1)[1].split(' ||\n',1)[0]
+        def complete(platform,present):
+            with tempfile.TemporaryDirectory() as t:
+                for name in ['etc/mu300/platform']+present:
+                    f=Path(t)/'openwrt'/name;f.parent.mkdir(parents=True,exist_ok=True);f.write_text(platform+'\n');f.chmod(0o755)
+                return subprocess.run(['sh','-c',check.replace('/part-root',t)]).returncode==0
+        pro=['sbin/init','usr/sbin/u30-modemd','opt/mu300/vendor/u30pro/modem/map.tsv','opt/mu300/vendor/u30pro/modem/modem_cp_info.xml']
+        self.assertTrue(complete('u30pro',pro))
+        for name in pro:self.assertFalse(complete('u30pro',[n for n in pro if n!=name]),name)
+        self.assertTrue(complete('f50',['sbin/init','lib/firmware/wcnmodem.bin']))
+        self.assertFalse(complete('f50',['sbin/init']))
 
 if __name__=='__main__':unittest.main()

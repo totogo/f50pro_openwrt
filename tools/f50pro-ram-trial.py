@@ -46,8 +46,9 @@ def main():
     trial=desktop['boot_control'](control,a.android_slot)
     if a.out.exists():raise ValueError('Trial output already exists; inspect before reuse')
     a.out.mkdir(parents=True)
-    root_tar=a.out/'root.tar.gz'
-    with tarfile.open(root_tar,'w:gz',compresslevel=3,dereference=False) as tar:
+    # xz: with gzip the current root plus kernel no longer fits the 48 MiB boundary below.
+    root_tar=a.out/'root.tar.xz'
+    with tarfile.open(root_tar,'w:xz',preset=6,dereference=False) as tar:
         for path in sorted(root.iterdir()):tar.add(path,arcname=path.name)
     report=package['verified_kernel']()
     release=runpy.run_path(str(TOP/'tools/release-identity.py'))['identify'](TOP,'f50pro',report['version'])
@@ -71,7 +72,7 @@ def main():
             'etc/trial-chip':(a.chip+'\n').encode(),
             'etc/trial-psim':(a.psim+'\n').encode(),
             'etc/trial-release.json':(json.dumps(release)+'\n').encode(),
-            'trial-root.tar.gz':root_tar.read_bytes()}.items():add(name,data)
+            'trial-root.tar.xz':root_tar.read_bytes()}.items():add(name,data)
     builder=runpy.run_path(str(TOP/'boot/build-boot-image.py'))
     ram=builder['lz4_legacy'](builder['cpio_archive']({'dev','proc','sys','run','tmp','newroot'},files))
     kernel=(package['KERNEL']/'arch/arm64/boot/Image').read_bytes()
